@@ -1,0 +1,15 @@
+__pycache__/
+.venv/
+.freebuff/
+.env
+*.db
+*.sqlite*
+.DS_Store
+
+**/.venv/
+**/venv/
+**/.freebuff/
+**/__pycache__/
+**/*.db
+**/*.sqlite*
+**/.DS_Store
