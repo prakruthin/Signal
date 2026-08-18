@@ -39,8 +39,8 @@ def _config() -> Dict[str, str]:
 
 def email_is_configured() -> bool:
     c = _config()
-    print("email_is_configured:")
-    print(bool(c["recipient"] and c["host"] and c["sender"]))
+    # print("email_is_configured:")
+    # print(bool(c["recipient"] and c["host"] and c["sender"]))
     return bool(c["recipient"] and c["host"] and c["sender"])
 
 

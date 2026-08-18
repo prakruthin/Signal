@@ -16,10 +16,10 @@ def research(company, ticker):
         raise gr.Error("Enter a publicly traded company to begin research.")
     ticker = ticker.strip() or COMPANY_TICKERS.get(company.strip().lower(), "")
     bundle = collect_full_research(company, ticker)
-    print("########################################################")
-    print("Bundle:")
-    print(bundle)
-    print("########################################################")
+    # print("########################################################")
+    # print("Bundle:")
+    # print(bundle)
+    # print("########################################################")
     research_data = bundle["research"]
     findings = bundle["findings"]
     thesis = build_thesis(company, ticker, research_data, findings)
