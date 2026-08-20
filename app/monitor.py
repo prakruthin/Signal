@@ -11,7 +11,6 @@ import time
 from .agents import collect_full_research, run_live_agents
 from .analyst import build_thesis, generate_triggers
 from .notifications import notify_trigger_changes
-from .store import log_event
 
 
 def scan(company: str, ticker: str, triggers=None, thesis=None):
@@ -26,13 +25,12 @@ def scan(company: str, ticker: str, triggers=None, thesis=None):
     assessment = result["assessment"]
     evidence = "\n".join(item["finding"] for item in result["findings"] if item["impact"] in ("Positive", "Negative"))
     deliveries = notify_trigger_changes(thesis.company, before, triggers, evidence or "Live multi-agent scan", assessment)
-    log_event(thesis.company, "Live multi-agent scan", assessment)
     print(f"{result['checked_at']} | {assessment['stance']} | alerts: {', '.join(deliveries) or 'none'}")
     return thesis, triggers
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Signal live monitoring and email alert service")
+    parser = argparse.ArgumentParser(description="Signal Watch live monitoring and email alert service")
     parser.add_argument("--once", action="store_true", help="Run one scan and exit")
     args = parser.parse_args()
     company = os.getenv("MONITOR_COMPANY", "Vodafone Idea")

@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-from .models import Driver, Thesis, Trigger
+from .models import Driver, Thesis, Trigger, ThesisPoint
 
 
 POSITIVE_TERMS = ("gain", "growth", "profit", "approval", "funding", "rise", "upgrade", "partnership", "launch", "award")
@@ -47,25 +47,86 @@ def build_thesis(
     from .financial_agent import financial_thesis_signals
 
     financial_signals = financial_thesis_signals(research.get("financials") or {})
-    print("########################################################")
-    print("Financial signals:")
-    print(financial_signals)
-    print("########################################################")
+    # print("########################################################")
+    # print("Financial signals:")
+    # print(financial_signals)
+    # print("########################################################")
 
-    bull = [f"Financial evidence: {point}" for point in financial_signals.get("bull", [])[:3]]
-    bear = [f"Financial risk: {point}" for point in financial_signals.get("bear", [])[:3]]
-    bull.extend(f"Live evidence: {_driver_title(item['title'])}" for item in positive[:3])
-    bear.extend(f"Live risk evidence: {_driver_title(item['title'])}" for item in negative[:3])
-    if market.get("change_percent") is not None:
-        market_item = f"Latest observed market move is {market['change_percent']:+.2f}% versus the prior close."
-        (bull if market["change_percent"] >= 0 else bear).append(market_item)
-    if history.get("change_1y_pct") is not None:
-        hist_item = f"Over the past year {name} ranged from {history['low_52w']:,.2f} to {history['high_52w']:,.2f} and is {history['change_1y_pct']:+.2f}% over that period."
-        (bull if history["change_1y_pct"] >= 0 else bear).append(hist_item)
-    if not bull:
-        bull = ["No clearly positive live signal was classified in the current research scan."]
-    if not bear:
-        bear = ["No clearly negative live signal was classified in the current research scan."]
+    bull_points: List[ThesisPoint] = []
+    for point in financial_signals.get("bull", [])[:3]:
+        bull_points.append(ThesisPoint(
+            factor="Financial Strength",
+            explanation=point,
+            evidence=f"From financial statements: {point}",
+            importance="High"
+        ))
+    for item in positive[:3]:
+        title = _driver_title(item.get("title", "Live news event"))
+        bull_points.append(ThesisPoint(
+            factor="Positive News Catalyst",
+            explanation=f"Recent positive development: {title}",
+            evidence=f"Source: {item.get('source', 'Live news')}. Headline: {item.get('title', '')}",
+            importance="Medium"
+        ))
+    if market.get("change_percent") is not None and market["change_percent"] >= 0:
+        bull_points.append(ThesisPoint(
+            factor="Positive Market Momentum",
+            explanation=f"Stock showing positive price action versus prior close",
+            evidence=f"Market data: {market['change_percent']:+.2f}% change vs prior close",
+            importance="Medium"
+        ))
+    if history.get("change_1y_pct") is not None and history["change_1y_pct"] >= 0:
+        bull_points.append(ThesisPoint(
+            factor="Positive Long-term Performance",
+            explanation=f"Stock has delivered positive returns over the past year",
+            evidence=f"52-week range: {history['low_52w']:,.2f} – {history['high_52w']:,.2f}; 1-year change: {history['change_1y_pct']:+.2f}%",
+            importance="Medium"
+        ))
+    if not bull_points:
+        bull_points.append(ThesisPoint(
+            factor="Insufficient Positive Evidence",
+            explanation="No clearly positive live signal was classified in the current research scan.",
+            evidence="Research scan returned no usable positive findings.",
+            importance="Low"
+        ))
+
+    bear_points: List[ThesisPoint] = []
+    for point in financial_signals.get("bear", [])[:3]:
+        bear_points.append(ThesisPoint(
+            factor="Financial Risk",
+            explanation=point,
+            evidence=f"From financial statements: {point}",
+            importance="High"
+        ))
+    for item in negative[:3]:
+        title = _driver_title(item.get("title", "Live news event"))
+        bear_points.append(ThesisPoint(
+            factor="Negative News Catalyst",
+            explanation=f"Recent negative development: {title}",
+            evidence=f"Source: {item.get('source', 'Live news')}. Headline: {item.get('title', '')}",
+            importance="Medium"
+        ))
+    if market.get("change_percent") is not None and market["change_percent"] < 0:
+        bear_points.append(ThesisPoint(
+            factor="Negative Market Momentum",
+            explanation=f"Stock showing negative price action versus prior close",
+            evidence=f"Market data: {market['change_percent']:+.2f}% change vs prior close",
+            importance="Medium"
+        ))
+    if history.get("change_1y_pct") is not None and history["change_1y_pct"] < 0:
+        bear_points.append(ThesisPoint(
+            factor="Negative Long-term Performance",
+            explanation=f"Stock has delivered negative returns over the past year",
+            evidence=f"52-week range: {history['low_52w']:,.2f} – {history['high_52w']:,.2f}; 1-year change: {history['change_1y_pct']:+.2f}%",
+            importance="Medium"
+        ))
+    if not bear_points:
+        bear_points.append(ThesisPoint(
+            factor="Insufficient Negative Evidence",
+            explanation="No clearly negative live signal was classified in the current research scan.",
+            evidence="Research scan returned no usable negative findings.",
+            importance="Low"
+        ))
 
     drivers: List[Driver] = []
     for item in financial_signals.get("drivers", []):
@@ -119,7 +180,7 @@ def build_thesis(
     else:
         assumptions.append("Financial statement analysis was not available; profitability, leverage, and cash flow are unverified.")
     challenge = "This evidence-led thesis is invalidated if primary sources contradict the collected signals or if the live source coverage is incomplete."
-    return Thesis(company=name, industry=industry, bull_case=bull, bear_case=bear, base_case=base, confidence=confidence, assumptions=assumptions, challenge=challenge, drivers=drivers, competitors= competitors)       #research.get("competitors", []))
+    return Thesis(company=name, industry=industry, bull_case=bull_points, bear_case=bear_points, base_case=base, confidence=confidence, assumptions=assumptions, challenge=challenge, drivers=drivers, competitors=competitors)
 
 
 def company_snapshot(thesis: Thesis, research: Dict[str, Any] | None = None) -> Dict[str, str]:
@@ -164,8 +225,81 @@ def generate_triggers(thesis: Thesis, findings: List[Dict[str, Any]] | None = No
         confidence = min(90, max(40, thesis.confidence + (6 if driver.direction != "Neutral" else 0)))
         frequency = "Hours" if driver.importance >= 8 else "Daily"
         raw = f"{thesis.company}:{category}:{description}".encode()
-        output.append(Trigger("TRG-" + hashlib.sha1(raw).hexdigest()[:7].upper(), category, description, confidence, importance, driver.name, ", ".join(thesis.competitors), thesis.industry, frequency))
+        # Include main company in related_companies for tracking
+        related_companies = ", ".join([thesis.company] + thesis.competitors)
+        
+        # Build structured condition based on driver
+        condition = _build_driver_condition(driver, thesis)
+        
+        output.append(Trigger("TRG-" + hashlib.sha1(raw).hexdigest()[:7].upper(), category, description, confidence, importance, driver.name, related_companies, thesis.industry, frequency, condition=condition))
     return output
+
+
+def _build_driver_condition(driver: Driver, thesis: Thesis) -> Dict[str, Any]:
+    """Build a structured condition dict from a driver for fallback triggers."""
+    # Map driver name to financial metric
+    metric_map = {
+        "revenue growth": "revenue_growth_ttm",
+        "operating profit": "operating_margin_ttm",
+        "operating margin": "operating_margin_ttm",
+        "gross margin": "gross_margin_ttm",
+        "net debt": "net_debt_ttm",
+        "fcf": "fcf_ttm",
+        "free cash flow": "fcf_ttm",
+        "eps": "eps_ttm",
+        "debt to equity": "debt_to_equity_ttm",
+        "leverage": "debt_to_equity_ttm",
+        "cash": "cash_ttm",
+        "working capital": "working_capital_ttm",
+    }
+    
+    driver_name_lower = driver.name.lower()
+    metric_name = None
+    for key, val in metric_map.items():
+        if key in driver_name_lower:
+            metric_name = val
+            break
+    
+    if not metric_name:
+        # Default to revenue growth for unknown drivers
+        metric_name = "revenue_growth_ttm"
+    
+    # Determine operator and threshold based on direction
+    if driver.direction == "Positive":
+        operator = "<"
+        threshold = 5.0  # Fallback threshold
+        unit = "percent"
+    else:
+        operator = ">"
+        threshold = 5.0
+        unit = "percent"
+    
+    # Adjust for specific metrics
+    if metric_name in ("debt_to_equity_ttm", "debt_to_assets_ttm"):
+        unit = "ratio"
+        if driver.direction == "Positive":
+            operator = ">"
+            threshold = 1.0
+        else:
+            operator = "<"
+            threshold = 2.0
+    elif metric_name in ("net_debt_ttm", "cash_ttm", "working_capital_ttm"):
+        unit = "absolute"
+        operator = "<" if driver.direction == "Positive" else ">"
+        threshold = 0.0
+    
+    return {
+        "condition_type": "financial_metric",
+        "metric_name": metric_name,
+        "operator": operator,
+        "threshold": threshold,
+        "unit": unit,
+        "lookback_periods": 2,
+        "period_type": "quarterly",
+        "consecutive": True,
+        "allow_gaps": True,
+        "data_source": "yahoo_finance_financials",
+    }
 
 
 def evaluate_event(event: str, thesis: Thesis, triggers: List[Trigger]) -> Tuple[Dict, List[Trigger]]:
@@ -188,7 +322,30 @@ def evaluate_event(event: str, thesis: Thesis, triggers: List[Trigger]) -> Tuple
 
 
 def summarize_thesis(t: Thesis) -> str:
-    return f"## {t.company} — Investment Thesis\n\n**Industry:** {t.industry}  \n**Thesis confidence:** {t.confidence}/100\n\n### Base case\n{t.base_case}\n\n### Bull case\n" + "\n".join(f"- {x}" for x in t.bull_case) + "\n\n### Bear case\n" + "\n".join(f"- {x}" for x in t.bear_case) + "\n\n### Critical assumptions\n" + "\n".join(f"- {x}" for x in t.assumptions) + f"\n\n### What could prove this wrong?\n{t.challenge}" + "\n\n### competitors\n" + "\n".join(f"- {x}" for x in t.competitors)
+    def format_points(points: List[ThesisPoint], label: str) -> str:
+        if not points:
+            return f"### {label}\nNo {label.lower()} points identified.\n"
+        parts = [f"### {label}"]
+        for i, p in enumerate(points, 1):
+            md = f"\n**{i}. {p.factor}** ({p.importance} importance)\n\n"
+            md += f"{p.explanation}\n\n"
+            md += f"**Evidence:** {p.evidence}\n"
+            if p.additional_evidence:
+                md += f"**Additional Evidence:** {p.additional_evidence}\n"
+            parts.append(md)
+        return "\n".join(parts)
+
+    return (
+        f"## {t.company} — Investment Thesis\n\n"
+        f"**Industry:** {t.industry}  \n"
+        f"**Thesis confidence:** {t.confidence}/100\n\n"
+        f"### Base case\n{t.base_case}\n\n"
+        f"{format_points(t.bull_case, 'Bull case')}\n\n"
+        f"{format_points(t.bear_case, 'Bear case')}\n\n"
+        f"### Critical assumptions\n" + "\n".join(f"- {x}" for x in t.assumptions) + 
+        f"\n\n### What could prove this wrong?\n{t.challenge}" + 
+        f"\n\n### Competitors\n" + "\n".join(f"- {x}" for x in t.competitors)
+    )
 
 # def summarize_thesis(t: Thesis) -> str:
 #     competitors_text = "\n".join(
