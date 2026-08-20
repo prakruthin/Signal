@@ -1272,10 +1272,10 @@ Each trigger MUST include a complete "condition" object matching its condition_t
 """
 
     data = _chat_json(system_prompt, user_prompt)
-    print("########################################################")
-    print("Data from generate_triggers_with_llm:")
-    print(data)
-    print("########################################################")
+    # print("########################################################")
+    # print("Data from generate_triggers_with_llm:")
+    # print(data)
+    # print("########################################################")
     output: List[Trigger] = []
     for item in data.get("triggers", [])[:10]:
         description = str(item.get("description", "")).strip()
@@ -1284,6 +1284,8 @@ Each trigger MUST include a complete "condition" object matching its condition_t
         category = str(item.get("category", "Hold"))
         raw = f"{thesis.company}:{category}:{description}".encode()
         condition = item.get("condition")
+        # Include main company in related_companies for tracking
+        related_companies = ", ".join([thesis.company] + thesis.competitors)
         output.append(
             Trigger(
                 "TRG-" + hashlib.sha1(raw).hexdigest()[:7].upper(),
@@ -1292,16 +1294,16 @@ Each trigger MUST include a complete "condition" object matching its condition_t
                 max(0, min(100, int(item.get("confidence", thesis.confidence)))),
                 str(item.get("importance", "Medium")),
                 str(item.get("related_driver", thesis.drivers[0].name if thesis.drivers else "General")),
-                ", ".join(thesis.competitors),
+                related_companies,
                 thesis.industry,
                 str(item.get("monitoring_frequency", "Daily")),
                 condition=condition,
             )
         )
-        print("########################################################")
-        print("Trigger from generate_triggers_with_llm:")
-        print(output)
-        print("########################################################")
+        # print("########################################################")
+        # print("Trigger from generate_triggers_with_llm:")
+        # print(output)
+        # print("########################################################")
     return output or None
 
 

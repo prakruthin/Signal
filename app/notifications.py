@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import smtplib
 from email.message import EmailMessage
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -39,8 +39,6 @@ def _config() -> Dict[str, str]:
 
 def email_is_configured() -> bool:
     c = _config()
-    # print("email_is_configured:")
-    # print(bool(c["recipient"] and c["host"] and c["sender"]))
     return bool(c["recipient"] and c["host"] and c["sender"])
 
 
@@ -62,6 +60,7 @@ def _send(subject: str, body: str) -> str:
         return "Sent"
     except Exception as exc:
         return f"Failed: {type(exc).__name__}: {exc}"
+
 
 def send_research_report(
     company: str,
@@ -104,10 +103,57 @@ def send_research_report(
         f"Decision support only — verify primary sources before acting."
         
     )
-    # print(body)
     report_sent = _send(subject, body)
 
     return report_sent
+
+
+def _format_trigger_condition(trigger: Trigger) -> str:
+    """Format trigger condition details for email."""
+    if not trigger.condition:
+        return "No structured condition defined"
+    
+    cond = trigger.condition
+    ct = cond.get("condition_type", "")
+    
+    if ct == "financial_metric":
+        return (
+            f"Type: Financial Metric\n"
+            f"Metric: {cond.get('metric_name', 'N/A')}\n"
+            f"Condition: {cond.get('metric_name')} {cond.get('operator')} {cond.get('threshold')} {cond.get('unit')}\n"
+            f"Lookback: {cond.get('lookback_periods')} {cond.get('period_type')}(s)\n"
+            f"Consecutive: {cond.get('consecutive', False)}\n"
+            f"Allow gaps: {cond.get('allow_gaps', True)}"
+        )
+    elif ct == "news_keyword":
+        return (
+            f"Type: News Keyword\n"
+            f"Keywords: {', '.join(cond.get('keywords', []))}\n"
+            f"Lookback: {cond.get('lookback_periods')} days\n"
+            f"Threshold: {cond.get('threshold')} matching headlines"
+        )
+    elif ct == "news_sentiment":
+        return (
+            f"Type: News Sentiment\n"
+            f"Sentiment threshold: {cond.get('sentiment_threshold')}\n"
+            f"Lookback: {cond.get('lookback_periods')} days\n"
+            f"Threshold: {cond.get('threshold')} headlines beyond threshold"
+        )
+    elif ct == "news_volume":
+        return (
+            f"Type: News Volume Spike\n"
+            f"Volume multiplier: {cond.get('volume_multiplier')}x baseline\n"
+            f"Baseline window: {cond.get('lookback_periods')} days\n"
+            f"Minimum headlines: {cond.get('threshold')}"
+        )
+    elif ct == "price_change":
+        return (
+            f"Type: Price Change\n"
+            f"Metric: {cond.get('metric_name', 'price_change_pct')}\n"
+            f"Condition: {cond.get('operator')} {cond.get('threshold')}%\n"
+            f"Lookback: {cond.get('lookback_periods')} period(s)"
+        )
+    return f"Unknown condition type: {ct}"
 
 
 def notify_trigger_changes(company: str, before: Dict[str, str], triggers: List[Trigger], event: str, assessment: Dict) -> List[str]:
@@ -122,25 +168,84 @@ def notify_trigger_changes(company: str, before: Dict[str, str], triggers: List[
         if alert_was_sent(fingerprint):
             outcomes.append(f"{trigger.trigger_id}: already sent")
             continue
+        
         subject = f"{trigger.status} — {company} — {trigger.trigger_id}"
+        
+        condition_details = _format_trigger_condition(trigger)
+        
         body = (
-            f"Investment intelligence alert\n\n"
+            f"Trigger Alert — {trigger.status}\n\n"
             f"Company: {company}\n"
-            f"Trigger: {trigger.trigger_id}\n"
+            f"Trigger ID: {trigger.trigger_id}\n"
             f"Category: {trigger.category}\n"
-            f"Status change: {old_status} → {trigger.status}\n"
-            f"Trigger: {trigger.description}\n"
-            f"Related driver: {trigger.related_driver}\n"
-            f"Analyst assessment: {assessment.get('outcome', 'N/A')} ({assessment.get('impact', 'Unclear')})\n"
-            f"Confidence: {assessment.get('confidence', 'N/A')}/100\n\n"
-            f"Event / evidence:\n{event}\n\n"
+            f"Importance: {trigger.importance}\n"
+            f"Monitoring Frequency: {trigger.monitoring_frequency}\n"
+            f"Status Change: {old_status} → {trigger.status}\n\n"
+            f"=== Trigger Description ===\n"
+            f"{trigger.description}\n\n"
+            f"=== Related Driver ===\n"
+            f"{trigger.related_driver}\n\n"
+            f"=== Condition Details ===\n"
+            f"{condition_details}\n\n"
+            f"=== Evaluation Details ===\n"
+            f"Event/Evidence: {event}\n"
+            f"Analyst Assessment: {assessment.get('outcome', 'N/A')} ({assessment.get('impact', 'Unclear')})\n"
+            f"Confidence: {assessment.get('confidence', 'N/A')}/100\n"
             f"Recommendation: {assessment.get('recommendation', 'Review the evidence.')}\n\n"
+            f"=== Source Information ===\n"
+            f"Related Companies: {trigger.related_companies}\n"
+            f"Industry: {trigger.related_industry}\n\n"
             f"Decision support only — verify primary sources before acting."
         )
+        
         delivery = _send(subject, body)
         record_alert(fingerprint, company, trigger.trigger_id, trigger.status, delivery, subject)
         set_trigger_status(company, trigger.trigger_id, trigger.status)
         outcomes.append(f"{trigger.trigger_id}: {delivery}")
     return outcomes
+
+
+def send_trigger_evaluation_alert(
+    company: str,
+    trigger: Trigger,
+    evaluation: Dict,
+    old_status: str,
+    new_status: str
+) -> str:
+    """Send detailed alert for automated trigger evaluation (from trigger_monitor)."""
+    if not email_is_configured():
+        return "Email not configured"
+    
+    subject = f"{new_status} — {company} — {trigger.trigger_id}"
+    
+    condition_details = _format_trigger_condition(trigger)
+    
+    body = (
+        f"Automated Trigger Evaluation — {new_status}\n\n"
+        f"Company: {company}\n"
+        f"Trigger ID: {trigger.trigger_id}\n"
+        f"Category: {trigger.category}\n"
+        f"Importance: {trigger.importance}\n"
+        f"Monitoring Frequency: {trigger.monitoring_frequency}\n"
+        f"Status Change: {old_status} → {new_status}\n\n"
+        f"=== Trigger Description ===\n"
+        f"{trigger.description}\n\n"
+        f"=== Related Driver ===\n"
+        f"{trigger.related_driver}\n\n"
+        f"=== Condition Details ===\n"
+        f"{condition_details}\n\n"
+        f"=== Evaluation Results ===\n"
+        f"Condition Met: {'YES' if evaluation.get('condition_met') else 'NO'}\n"
+        f"Current Value: {evaluation.get('current_value', 'N/A')}\n"
+        f"Threshold: {evaluation.get('threshold', 'N/A')}\n"
+        f"Details: {evaluation.get('details', 'N/A')}\n"
+        f"Evaluated At: {evaluation.get('evaluated_at', 'N/A')}\n\n"
+        f"=== Source Information ===\n"
+        f"Related Companies: {trigger.related_companies}\n"
+        f"Industry: {trigger.related_industry}\n\n"
+        f"Decision support only — verify primary sources before acting."
+    )
+    
+    return _send(subject, body)
 
 

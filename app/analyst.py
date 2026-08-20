@@ -47,10 +47,10 @@ def build_thesis(
     from .financial_agent import financial_thesis_signals
 
     financial_signals = financial_thesis_signals(research.get("financials") or {})
-    print("########################################################")
-    print("Financial signals:")
-    print(financial_signals)
-    print("########################################################")
+    # print("########################################################")
+    # print("Financial signals:")
+    # print(financial_signals)
+    # print("########################################################")
 
     bull_points: List[ThesisPoint] = []
     for point in financial_signals.get("bull", [])[:3]:
@@ -225,8 +225,81 @@ def generate_triggers(thesis: Thesis, findings: List[Dict[str, Any]] | None = No
         confidence = min(90, max(40, thesis.confidence + (6 if driver.direction != "Neutral" else 0)))
         frequency = "Hours" if driver.importance >= 8 else "Daily"
         raw = f"{thesis.company}:{category}:{description}".encode()
-        output.append(Trigger("TRG-" + hashlib.sha1(raw).hexdigest()[:7].upper(), category, description, confidence, importance, driver.name, ", ".join(thesis.competitors), thesis.industry, frequency))
+        # Include main company in related_companies for tracking
+        related_companies = ", ".join([thesis.company] + thesis.competitors)
+        
+        # Build structured condition based on driver
+        condition = _build_driver_condition(driver, thesis)
+        
+        output.append(Trigger("TRG-" + hashlib.sha1(raw).hexdigest()[:7].upper(), category, description, confidence, importance, driver.name, related_companies, thesis.industry, frequency, condition=condition))
     return output
+
+
+def _build_driver_condition(driver: Driver, thesis: Thesis) -> Dict[str, Any]:
+    """Build a structured condition dict from a driver for fallback triggers."""
+    # Map driver name to financial metric
+    metric_map = {
+        "revenue growth": "revenue_growth_ttm",
+        "operating profit": "operating_margin_ttm",
+        "operating margin": "operating_margin_ttm",
+        "gross margin": "gross_margin_ttm",
+        "net debt": "net_debt_ttm",
+        "fcf": "fcf_ttm",
+        "free cash flow": "fcf_ttm",
+        "eps": "eps_ttm",
+        "debt to equity": "debt_to_equity_ttm",
+        "leverage": "debt_to_equity_ttm",
+        "cash": "cash_ttm",
+        "working capital": "working_capital_ttm",
+    }
+    
+    driver_name_lower = driver.name.lower()
+    metric_name = None
+    for key, val in metric_map.items():
+        if key in driver_name_lower:
+            metric_name = val
+            break
+    
+    if not metric_name:
+        # Default to revenue growth for unknown drivers
+        metric_name = "revenue_growth_ttm"
+    
+    # Determine operator and threshold based on direction
+    if driver.direction == "Positive":
+        operator = "<"
+        threshold = 5.0  # Fallback threshold
+        unit = "percent"
+    else:
+        operator = ">"
+        threshold = 5.0
+        unit = "percent"
+    
+    # Adjust for specific metrics
+    if metric_name in ("debt_to_equity_ttm", "debt_to_assets_ttm"):
+        unit = "ratio"
+        if driver.direction == "Positive":
+            operator = ">"
+            threshold = 1.0
+        else:
+            operator = "<"
+            threshold = 2.0
+    elif metric_name in ("net_debt_ttm", "cash_ttm", "working_capital_ttm"):
+        unit = "absolute"
+        operator = "<" if driver.direction == "Positive" else ">"
+        threshold = 0.0
+    
+    return {
+        "condition_type": "financial_metric",
+        "metric_name": metric_name,
+        "operator": operator,
+        "threshold": threshold,
+        "unit": unit,
+        "lookback_periods": 2,
+        "period_type": "quarterly",
+        "consecutive": True,
+        "allow_gaps": True,
+        "data_source": "yahoo_finance_financials",
+    }
 
 
 def evaluate_event(event: str, thesis: Thesis, triggers: List[Trigger]) -> Tuple[Dict, List[Trigger]]:
