@@ -8,69 +8,69 @@ A Gradio application that turns a public company into a living, auditable invest
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                           USER INTERFACE (Gradio)                                    │
+│                           USER INTERFACE (Gradio)                                   │
 │  ┌─────────────┐ ┌──────────────┐ ┌─────────────────┐ ┌─────────────┐ ┌───────────┐ │
 │  │  Research   │ │  Investment  │ │  Financial      │ │  Drivers &  │ │  Evaluate │ │
 │  │  Company    │ │  Thesis      │ │  Analysis       │ │  Triggers   │ │  Event    │ │
 │  └──────┬──────┘ └──────┬───────┘ └────────┬────────┘ └──────┬──────┘ └─────┬─────┘ │
-└─────────┼───────────────┼──────────────────┼────────────────┼──────────────┼───────┘
+└─────────┼───────────────┼──────────────────┼────────────────-┼──────────────┼───────┘
           │               │                  │                │              │
           ▼               ▼                  ▼                ▼              ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                         CORE ORCHESTRATION (main.py)                                 │
-│  • research() - Runs full pipeline: collect → thesis → triggers → save → email     │
+│                         CORE ORCHESTRATION (main.py)                                │
+│  • research() - Runs full pipeline: collect → thesis → triggers → save → email      │
 │  • assess_event() - Evaluates new events against thesis & triggers                  │
-│  • refresh_trigger_monitor() - Evaluates tracked triggers against live data        │
+│  • refresh_trigger_monitor() - Evaluates tracked triggers against live data         │
 └──────────────────────────────────────┬──────────────────────────────────────────────┘
                                        │
           ┌────────────────────────────┼────────────────────────────┐
           ▼                            ▼                            ▼
-┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
-│  AGENTS MODULE  │          │  ANALYST MODULE │          │ FINANCIAL AGENT │
-│  (agents.py)    │          │  (analyst.py)   │          │ (financial_     │
-│                 │          │                 │          │  agent.py)      │
-│ • CompanyResearch│         │ • build_thesis()│          │ • FinancialAgent│
-│   Agent         │          │ • generate_     │          │   collects TTM  │
-│ • MarketData    │          │   triggers()    │          │   & 4Y financials│
-│   Agent         │          │ • evaluate_     │          │ • Income stmt,  │
-│ • NewsAgent     │          │   event()       │          │   balance sheet,│
-│ • Competitor    │          │ • summarize_    │          │   cash flow     │
-│   Agent         │          │   thesis()      │          │ • Computes ratios│
-│ • Regulatory    │          │ • drivers_rows()│          │   & growth      │
-│   Agent         │          │ • trigger_rows()│          │                 │
-│ • Investment    │          │ • _build_driver_│          │                 │
-│   Analyst Agent │          │   condition()   │          │                 │
-└────────┬────────┘          └────────┬────────┘          └────────┬────────┘
-         │                            │                            │
-         │              ┌─────────────┴─────────────┐             │
-         │              ▼                           ▼             │
-         │    ┌──────────────────┐           ┌──────────────┐    │
-         │    │   LLM MODULE     │           │  STORE MODULE│    │
-         │    │   (llm.py)       │           │  (store.py)  │    │
-         │    │                  │           │              │    │
-         │    │ • Thesis gen     │           │ • SQLite/    │    │
-         │    │ • Trigger gen    │           │   PostgreSQL │    │
-         │    │ • Event eval     │           │ • Thesis     │    │
-         │    │ • Findings synth │           │   versions   │    │
-         │    │ • Competitor disc│           │ • Event log  │    │
-         │    │                  │           │ • Alert      │    │
-         │    │                  │           │   delivery   │    │
-         │    │                  │           │ • Trigger    │    │
-         │    │                  │           │   state      │    │
-         │    │                  │           │ • Trigger    │    │
-         │    │                  │           │   conditions │    │
-         │    │                  │           │ • Metric     │    │
-         │    │                  │           │   history    │    │
-         │    │                  │           │ • Trigger    │    │
-         │    │                  │           │   evaluations│    │
-         │    └────────┬─────────┘           └──────┬───────┘    │
-         │             │                            │             │
-         └─────────────┼────────────────────────────┼─────────────┘
+┌─────────────────-┐          ┌─────────────────┐          ┌─────────────────-┐
+│  AGENTS MODULE   │          │  ANALYST MODULE │          │ FINANCIAL AGENT  │
+│  (agents.py)     │          │  (analyst.py)   │          │ (financial_      │
+│                  │          │                 │          │  agent.py)       │
+│ • CompanyResearch│          │ • build_thesis()│          │ • FinancialAgent │
+│   Agent          │          │ • generate_     │          │   collects TTM   │
+│ • MarketData     │          │   triggers()    │          │   & 4Y financials│
+│   Agent          │          │ • evaluate_     │          │ • Income stmt,   │
+│ • NewsAgent      │          │   event()       │          │   balance sheet, │
+│ • Competitor     │          │ • summarize_    │          │   cash flow      │
+│   Agent          │          │   thesis()      │          │ • Computes ratios│
+│ • Regulatory     │          │ • drivers_rows()│          │   & growth       │
+│   Agent          │          │ • trigger_rows()│          │                  │
+│ • Investment     │          │ • _build_driver_│          │                  │
+│   Analyst Agent  │          │   condition()   │          │                  │
+└────────┬────────-┘          └────────┬────────┘          └────────┬────────-┘
+         │                             │                            │
+         │              ┌─────────────-┴─────────────┐              │
+         │              ▼                            ▼              │
+         │    ┌──────────────────┐           ┌──────────────┐       │
+         │    │   LLM MODULE     │           │  STORE MODULE│       │
+         │    │   (llm.py)       │           │  (store.py)  │       │
+         │    │                  │           │              │       │
+         │    │ • Thesis gen     │           │ • SQLite/    │       │
+         │    │ • Trigger gen    │           │   PostgreSQL │       │
+         │    │ • Event eval     │           │ • Thesis     │       │
+         │    │ • Findings synth │           │   versions   │       │
+         │    │ • Competitor disc│           │ • Event log  │       │
+         │    │                  │           │ • Alert      │       │
+         │    │                  │           │   delivery   │       │
+         │    │                  │           │ • Trigger    │       │
+         │    │                  │           │   state      │       │
+         │    │                  │           │ • Trigger    │       │
+         │    │                  │           │   conditions │       │
+         │    │                  │           │ • Metric     │       │
+         │    │                  │           │   history    │       │
+         │    │                  │           │ • Trigger    │       │
+         │    │                  │           │   evaluations│       │
+         │    └────────┬─────────┘           └──────┬───────┘       │
+         │             │                            │               │
+         └─────────────┼────────────────────────────┼─────────────--┘
                        │                            │
                        ▼                            ▼
               ┌─────────────────┐          ┌─────────────────┐
               │  NOTIFICATIONS  │          │  TRIGGER MONITOR│
-              │  (notifications│          │  (trigger_mon-  │
+              │  (notifications │          │  (trigger_mon-  │
               │   .py)          │          │   itor.py)      │
               │                 │          │                 │
               │ • SMTP email    │          │ • APScheduler   │
