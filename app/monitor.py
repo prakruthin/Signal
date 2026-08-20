@@ -30,7 +30,7 @@ def scan(company: str, ticker: str, triggers=None, thesis=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Signal live monitoring and email alert service")
+    parser = argparse.ArgumentParser(description="Signal Watch live monitoring and email alert service")
     parser.add_argument("--once", action="store_true", help="Run one scan and exit")
     args = parser.parse_args()
     company = os.getenv("MONITOR_COMPANY", "Vodafone Idea")

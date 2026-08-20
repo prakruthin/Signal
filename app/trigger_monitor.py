@@ -263,7 +263,7 @@ def run_monitor(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Signal Trigger Monitor - Automated per-trigger monitoring")
+    parser = argparse.ArgumentParser(description="Signal Watch Trigger Monitor - Automated per-trigger monitoring")
     parser.add_argument("--once", action="store_true", help="Run all triggers once and exit")
     parser.add_argument("--company", default=os.getenv("MONITOR_COMPANY", "Vodafone Idea"))
     parser.add_argument("--ticker", default=os.getenv("MONITOR_TICKER", "IDEA.NS"))

@@ -1,4 +1,4 @@
-# Signal — AI Investment Intelligence MVP
+# Signal Watch — AI Investment Intelligence MVP
 
 A Gradio application that turns a public company into a living, auditable investment thesis. It includes company research, bull/base/bear cases, success and failure drivers, automatically generated triggers with structured conditions, event evaluation, persisted thesis versions, and a **per-trigger automated monitoring service** with email alerts.
 

@@ -241,9 +241,9 @@ def refresh_trigger_monitor(company_name, state):
 from datetime import datetime, timezone
 
 
-with gr.Blocks(title="Signal — AI Investment Intelligence", theme=gr.themes.Soft(primary_hue="indigo")) as demo:
+with gr.Blocks(title="Signal Watch — AI Investment Intelligence", theme=gr.themes.Soft(primary_hue="indigo")) as demo:
     state = gr.State({})
-    gr.Markdown("# Signal\n### AI investment intelligence that tracks what must go right — and what could break the thesis.")
+    gr.Markdown("# Signal Watch\n### AI investment intelligence that tracks what must go right — and what could break the thesis.")
     with gr.Row():
         company = gr.Textbox(label="Company", placeholder="Amazon", scale=3)
         ticker = gr.Textbox(label="Ticker (optional)", placeholder="AMZN", scale=1)
