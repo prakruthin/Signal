@@ -1,6 +1,6 @@
 # Signal — AI Investment Intelligence MVP
 
-A Gradio application that turns a public company into a living, auditable investment thesis. It includes company research, bull/base/bear cases, success and failure drivers, automatically generated triggers, event evaluation, persisted thesis versions, and a live multi-agent research monitor.
+A Gradio application that turns a public company into a living, auditable investment thesis. It includes company research, bull/base/bear cases, success and failure drivers, automatically generated triggers with structured conditions, event evaluation, persisted thesis versions, and a **per-trigger automated monitoring service** with email alerts.
 
 ---
 
@@ -20,7 +20,7 @@ A Gradio application that turns a public company into a living, auditable invest
 │                         CORE ORCHESTRATION (main.py)                                 │
 │  • research() - Runs full pipeline: collect → thesis → triggers → save → email     │
 │  • assess_event() - Evaluates new events against thesis & triggers                  │
-│  • refresh_live_agents() - Runs live multi-agent scan                                │
+│  • refresh_trigger_monitor() - Evaluates tracked triggers against live data        │
 └──────────────────────────────────────┬──────────────────────────────────────────────┘
                                        │
           ┌────────────────────────────┼────────────────────────────┐
@@ -38,8 +38,8 @@ A Gradio application that turns a public company into a living, auditable invest
 │   Agent         │          │   thesis()      │          │ • Computes ratios│
 │ • Regulatory    │          │ • drivers_rows()│          │   & growth      │
 │   Agent         │          │ • trigger_rows()│          │                 │
-│ • Investment    │          │                 │          │                 │
-│   Analyst Agent │          │                 │          │                 │
+│ • Investment    │          │ • _build_driver_│          │                 │
+│   Analyst Agent │          │   condition()   │          │                 │
 └────────┬────────┘          └────────┬────────┘          └────────┬────────┘
          │                            │                            │
          │              ┌─────────────┴─────────────┐             │
@@ -57,22 +57,55 @@ A Gradio application that turns a public company into a living, auditable invest
          │    │                  │           │   delivery   │    │
          │    │                  │           │ • Trigger    │    │
          │    │                  │           │   state      │    │
+         │    │                  │           │ • Trigger    │    │
+         │    │                  │           │   conditions │    │
+         │    │                  │           │ • Metric     │    │
+         │    │                  │           │   history    │    │
+         │    │                  │           │ • Trigger    │    │
+         │    │                  │           │   evaluations│    │
          │    └────────┬─────────┘           └──────┬───────┘    │
          │             │                            │             │
          └─────────────┼────────────────────────────┼─────────────┘
                        │                            │
                        ▼                            ▼
               ┌─────────────────┐          ┌─────────────────┐
-              │  NOTIFICATIONS  │          │  MONITOR CLI    │
-              │  (notifications│          │  (monitor.py)   │
-              │   .py)          │          │                 │
-              │                 │          │ • Headless scan │
-              │ • SMTP email    │          │ • Scheduler     │
-              │ • Trigger alerts│          │ • Continuous    │
-              │ • Research rpt  │          │   monitoring    │
-              │ • Deduplication │          │                 │
+              │  NOTIFICATIONS  │          │  TRIGGER MONITOR│
+              │  (notifications│          │  (trigger_mon-  │
+              │   .py)          │          │   itor.py)      │
+              │                 │          │                 │
+              │ • SMTP email    │          │ • APScheduler   │
+              │ • Trigger alerts│          │ • Per-trigger   │
+              │ • Research rpt  │          │   frequency     │
+              │ • Deduplication │          │ • Auto-eval     │
               └─────────────────┘          └─────────────────┘
 ```
+
+---
+
+## New: Automated Trigger Monitoring System
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Per-trigger scheduling** | Each trigger runs on its own frequency (Hours/Daily/Weekly/Monthly) via APScheduler |
+| **Structured conditions** | Triggers have machine-evaluable conditions (not free-text) |
+| **5 condition types** | `financial_metric`, `news_keyword`, `news_sentiment`, `news_volume`, `price_change` |
+| **Historical tracking** | `metric_history` table stores time-series for consecutive-period conditions |
+| **Evaluation audit trail** | `trigger_evaluations` table logs every check with values, met/not-met, status changes |
+| **Email alerts** | Detailed emails on status changes (Monitoring → Activated/Strengthened) with condition explanation |
+| **Opt-in tracking** | User chooses which triggers to monitor via "Start Tracking" button |
+| **Company normalization** | Consistent company name handling across all database operations |
+
+### Condition Types
+
+| Type | Data Source | Example |
+|------|-------------|---------|
+| `financial_metric` | Yahoo Finance financials | `revenue_growth_ttm < 5%` for 2 consecutive quarters |
+| `news_keyword` | Google/Yahoo RSS | Headlines containing "bankruptcy", "FDA approval" in last 7 days |
+| `news_sentiment` | Google/Yahoo RSS | ≥3 negative headlines (sentiment < -0.3) in 7 days |
+| `news_volume` | Google/Yahoo RSS | Headline count > 2x 30-day average (min 5) |
+| `price_change` | Yahoo Finance price | Price change > 10% in single day |
 
 ---
 
@@ -82,7 +115,7 @@ A Gradio application that turns a public company into a living, auditable invest
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| **app/main.py** | **Entry point & Gradio UI orchestrator** | `research()`, `assess_event()`, `refresh_live_agents()` - coordinates all modules, manages UI state, launches Gradio app |
+| **app/main.py** | **Entry point & Gradio UI orchestrator** | `research()`, `assess_event()`, `refresh_trigger_monitor()`, `start_tracking_trigger()` - coordinates all modules, manages UI state, launches Gradio app |
 | **app/__init__.py** | Package marker | Empty - makes `app` a Python package |
 
 ### Data Collection Agents (`app/agents.py`)
@@ -111,10 +144,11 @@ A Gradio application that turns a public company into a living, auditable invest
 |----------|-------------|
 | `build_thesis()` | Creates Thesis object: bull/bear/base cases, confidence (15-90), assumptions, challenge, drivers. Uses LLM if configured, otherwise deterministic logic from financial signals + headlines. |
 | `company_snapshot()` | Formats company profile for UI/email (price, 52w range, YTD, sources) |
-| `generate_triggers()` | Creates monitoring triggers from thesis drivers. LLM-generated if configured, otherwise 1:1 from drivers. |
+| `generate_triggers()` | Creates monitoring triggers from thesis drivers. LLM-generated if configured, otherwise 1:1 from drivers with structured conditions via `_build_driver_condition()`. |
 | `evaluate_event()` | Scores new event against thesis & triggers. Returns outcome, impact, confidence, recommendation. |
 | `summarize_thesis()` | Formats thesis as Markdown for UI/email |
 | `drivers_rows()`, `trigger_rows()` | Formats for Gradio Dataframe components |
+| `_build_driver_condition()` | **NEW**: Maps driver names to financial metrics with appropriate thresholds for fallback triggers |
 
 ### Financial Analysis (`app/financial_agent.py`)
 
@@ -138,12 +172,64 @@ A Gradio application that turns a public company into a living, auditable invest
 |----------|---------|
 | `llm_is_configured()` | Checks for `OPENAI_API_KEY` |
 | `build_thesis_with_llm()` | Senior analyst prompt → full thesis JSON |
-| `generate_triggers_with_llm()` | Creates actionable monitoring triggers from drivers |
+| `generate_triggers_with_llm()` | **UPDATED**: Creates actionable monitoring triggers with structured `condition` objects (5 condition types) |
 | `evaluate_with_llm()` | Evaluates new event against thesis & triggers |
 | `assess_findings_with_llm()` | Synthesizes live agent findings for monitor |
 | `discover_competitors()` | LLM-based competitor identification with threat levels |
 
-**Prompt engineering**: Comprehensive 800+ line system prompt enforcing evidence-based reasoning, confidence scoring framework (0-100 based on evidence quality, not direction), mandatory financial statement incorporation, fact/interpretation/conclusion separation.
+**Prompt engineering**: Comprehensive system prompt enforcing evidence-based reasoning, confidence scoring framework (0-100 based on evidence quality, not direction), mandatory financial statement incorporation, fact/interpretation/conclusion separation. **Trigger generation now requires structured `condition` object** matching one of 5 condition types.
+
+### New Modules
+
+| File | Purpose |
+|------|---------|
+| **app/trigger_conditions.py** | Condition parsing, validation, evaluation logic for 5 condition types. Includes `parse_condition()`, `validate_condition()`, `evaluate_financial_condition()`, `evaluate_news_keyword_condition()`, `evaluate_news_sentiment_condition()`, `evaluate_news_volume_condition()`, `evaluate_price_condition()` |
+| **app/data_fetchers.py** | `YahooFinanceFetcher` (financials, price, historical metrics) + `RSSFetcher` (Google News, Yahoo Finance RSS). Handles caching, error handling, impact classification. |
+| **app/trigger_evaluator.py** | `TriggerEvaluator` class - evaluates triggers against live data sources. `evaluate_trigger()` routes to appropriate evaluator based on condition type. `evaluate_all_triggers()` runs batch evaluation. Persists results to `trigger_evaluations` and `metric_history` tables. |
+| **app/trigger_monitor.py** | Background service with APScheduler for per-trigger scheduling. Loads triggers from DB, schedules each per its frequency, runs evaluations, sends alerts, updates status. Run with `python -m app.trigger_monitor --once` or continuous. |
+
+### Thesis Construction & Analysis (`app/analyst.py`)
+
+**Purpose**: Builds evidence-based investment thesis from live research data.
+
+| Function | Description |
+|----------|-------------|
+| `build_thesis()` | Creates Thesis object: bull/bear/base cases, confidence (15-90), assumptions, challenge, drivers. Uses LLM if configured, otherwise deterministic logic from financial signals + headlines. |
+| `company_snapshot()` | Formats company profile for UI/email (price, 52w range, YTD, sources) |
+| `generate_triggers()` | Creates monitoring triggers from thesis drivers. LLM-generated if configured, otherwise 1:1 from drivers with structured conditions via `_build_driver_condition()`. |
+| `evaluate_event()` | Scores new event against thesis & triggers. Returns outcome, impact, confidence, recommendation. |
+| `summarize_thesis()` | Formats thesis as Markdown for UI/email |
+| `drivers_rows()`, `trigger_rows()` | Formats for Gradio Dataframe components |
+| `_build_driver_condition()` | **NEW**: Maps driver names to financial metrics with appropriate thresholds for fallback triggers (e.g., "Revenue growth" → `revenue_growth_ttm < 5%` for 2 quarters) |
+
+### Financial Analysis (`app/financial_agent.py`)
+
+**Purpose**: Deep financial statement analysis using yfinance (Yahoo Finance).
+
+| Component | Description |
+|-----------|-------------|
+| `FinancialAgent.collect()` | Fetches TTM + 4 fiscal years: income statement, balance sheet, cash flow. Computes margins, growth, leverage, FCF metrics. Returns `FinancialSnapshot` + agent findings. |
+| `FinancialSnapshot` | Dataclass holding all financial data by period (TTM, FY-1..FY-4) |
+| `financial_thesis_signals()` | Derives bull/bear points & drivers from financials for non-LLM thesis fallback |
+| `financial_markdown()` | Renders financial tables for Gradio UI |
+| `financial_thesis_context()` | Structured text for LLM thesis generation |
+
+**Metrics computed**: Revenue, growth, gross/operating/EBITDA margins, net income, EPS, cash, debt, net debt, working capital, debt/equity, debt/assets, operating cash flow, CapEx, FCF, FCF margin, FCF growth, FCF conversion.
+
+### LLM Integration (`app/llm.py`)
+
+**Purpose**: All AI-powered analysis using OpenAI-compatible API.
+
+| Function | Purpose |
+|----------|---------|
+| `llm_is_configured()` | Checks for `OPENAI_API_KEY` |
+| `build_thesis_with_llm()` | Senior analyst prompt → full thesis JSON |
+| `generate_triggers_with_llm()` | **UPDATED**: Creates actionable monitoring triggers with structured `condition` objects (5 condition types: financial_metric, news_keyword, news_sentiment, news_volume, price_change) |
+| `evaluate_with_llm()` | Evaluates new event against thesis & triggers |
+| `assess_findings_with_llm()` | Synthesizes live agent findings for monitor |
+| `discover_competitors()` | LLM-based competitor identification with threat levels |
+
+**Prompt engineering**: Comprehensive system prompt enforcing evidence-based reasoning, confidence scoring framework (0-100 based on evidence quality, not direction), mandatory financial statement incorporation, fact/interpretation/conclusion separation. **Trigger generation now requires structured `condition` object** matching one of 5 condition types with detailed validation checklist and examples.
 
 ### Data Models (`app/models.py`)
 
@@ -152,7 +238,10 @@ A Gradio application that turns a public company into a living, auditable invest
 | Class | Fields |
 |-------|--------|
 | `Driver` | name, description, importance (1-10), direction (Pos/Neg/Neutral), monitoring_required, source_type |
-| `Trigger` | trigger_id, category, description, confidence, importance, related_driver, related_companies, related_industry, monitoring_frequency, status |
+| `Trigger` | trigger_id, category, description, confidence, importance, related_driver, related_companies, related_industry, monitoring_frequency, status, **condition** (dict), **cooldown_until** |
+| `TriggerCondition` | **NEW**: trigger_id, condition_type, metric_name, operator, threshold, unit, lookback_periods, period_type, consecutive, allow_gaps, keywords[], sentiment_threshold, volume_multiplier, data_source, metadata fields |
+| `MetricHistory` | **NEW**: company, metric_name, value, period_end, period_type, source |
+| `TriggerEvaluation` | **NEW**: trigger_id, evaluated_at, condition_met, current_value, threshold, details, alert_sent, previous_status, new_status |
 | `Thesis` | company, industry, bull_case[], bear_case[], base_case, confidence, assumptions[], challenge, drivers[], competitors[] |
 
 ### Persistence Layer (`app/store.py`)
@@ -165,8 +254,13 @@ A Gradio application that turns a public company into a living, auditable invest
 | `event_log` | All evaluated events with full evaluation JSON |
 | `alert_deliveries` | Email delivery fingerprints (prevents duplicate alerts) |
 | `trigger_states` | Persistent trigger status across monitor runs |
+| `trigger_conditions` | **NEW**: Structured trigger conditions + metadata (description, category, confidence, importance, related_driver, monitoring_frequency, status) |
+| `metric_history` | **NEW**: Time-series of financial metrics for consecutive-period conditions |
+| `trigger_evaluations` | **NEW**: Evaluation audit trail (condition_met, current_value, threshold, details, status transitions) |
 
-**Key functions**: `save_thesis()`, `thesis_history()`, `log_event()`, `alert_was_sent()`, `record_alert()`, `trigger_status()`, `set_trigger_status()`
+**Key functions**: `save_thesis()`, `thesis_history()`, `log_event()`, `alert_was_sent()`, `record_alert()`, `trigger_status()`, `set_trigger_status()`, `save_trigger_condition()`, `get_trigger_condition()`, `get_all_trigger_conditions()`, `get_all_companies_with_triggers()`, `store_metric_history()`, `get_metric_history()`, `log_trigger_evaluation()`, `get_trigger_evaluations()`
+
+**Company normalization**: All company-name operations use `_normalize_company()` for consistent storage/querying.
 
 ### Notifications (`app/notifications.py`)
 
@@ -177,10 +271,32 @@ A Gradio application that turns a public company into a living, auditable invest
 | `email_is_configured()` | Validates SMTP config from `.env` |
 | `send_research_report()` | Sends full thesis + profile + triggers on research completion |
 | `notify_trigger_changes()` | Sends one email per trigger status change (Monitoring → Activated/Strengthened). Uses fingerprint (company|trigger|old|new|event) to prevent duplicates. |
+| `_format_trigger_condition()` | **NEW**: Formats structured condition details for email (type, metric, threshold, lookback, etc.) |
+| `send_trigger_evaluation_alert()` | **NEW**: Detailed alert for automated trigger evaluation with condition explanation |
+
+### Trigger Monitor Service (`app/trigger_monitor.py`)
+
+**Purpose**: Automated per-trigger monitoring with APScheduler.
+
+```bash
+# One-time evaluation
+python -m app.trigger_monitor --once --company "Vodafone Idea" --ticker "IDEA.NS"
+
+# Continuous (per-trigger frequencies: Hours/Daily/Weekly/Monthly)
+python -m app.trigger_monitor --company "Vodafone Idea" --ticker "IDEA.NS"
+```
+
+**Features**:
+- Loads triggers from `trigger_states` + `trigger_conditions` tables
+- Schedules each trigger per its `monitoring_frequency` (Hours→interval 1h, Daily→cron 6AM, Weekly→cron Mon 6AM, Monthly→cron 1st 6AM)
+- Runs `TriggerEvaluator.evaluate_trigger()` on schedule
+- On status change: updates `trigger_states`, logs to `trigger_evaluations`, sends detailed email
+- 24-hour cooldown prevents alert flapping
+- Designed for systemd, Docker, or cron deployment
 
 ### Headless Monitor (`app/monitor.py`)
 
-**Purpose**: Run continuous monitoring without browser.
+**Purpose**: Legacy continuous monitoring (single interval for all triggers).
 
 ```bash
 # One-time scan
@@ -190,48 +306,44 @@ python -m app.monitor --once
 python -m app.monitor
 ```
 
-**Flow**: `scan()` → collects research if first run → builds thesis/triggers → runs live agents → sends alerts → logs → sleeps → repeats.
+**Note**: This uses the old LLM-based qualitative assessment. The new `trigger_monitor.py` is recommended for production.
 
 ---
 
-## Program Descriptions
+## Gradio UI Tabs (6 total)
 
-### 1. **Gradio Web Application** (`python -m app.main`)
-Interactive dashboard with 6 tabs:
-- **Research Company** - Enter name/ticker → runs full pipeline → saves thesis v1
-- **Investment Thesis** - Bull/base/bear cases, confidence, assumptions, challenge
-- **Financial Analysis** - TTM + 4Y tables: performance, health, cash flow
-- **Drivers & Triggers** - Thesis drivers (importance, direction, source) + auto-generated monitoring triggers
-- **Evaluate Event** - Paste headline/filing → scores against thesis → updates trigger statuses → emails
-- **Live Agent Monitor** - Runs 5 agents + LLM analyst → shows findings, assessment, updated triggers
-- **Thesis History** - Versioned thesis snapshots
+| Tab | Description |
+|-----|-------------|
+| **Research Company** | Enter name/ticker → runs full pipeline → saves thesis v1 |
+| **Investment Thesis** | Bull/base/bear cases (structured), confidence, assumptions, challenge |
+| **Financial Analysis** | TTM + 4Y tables: performance, health, cash flow |
+| **Drivers & Triggers** | Thesis drivers + auto-generated triggers. **Dropdown + "Start Tracking" button** to opt-in triggers for monitoring |
+| **Evaluate Event** | Paste headline/filing → scores against thesis → updates trigger statuses → emails |
+| **Trigger Monitor** | **NEW**: Company dropdown (from DB), "Refresh trigger status" button, table with ID, Category, Description, Importance, Frequency, Status, Condition, Last Evaluation, Next Check |
 
-### 2. **Headless Monitor Service** (`python -m app.monitor`)
-Production-grade background service:
-- Runs on schedule (default 5 min interval)
-- Persists thesis & triggers between runs
-- Sends email alerts only on trigger state transitions
-- Logs all scans to database
-- Designed for systemd, Docker, or cron deployment
+**Removed**: Live Agent Monitor tab, Thesis History tab
 
-### 3. **Research Pipeline** (triggered by UI or monitor)
+---
+
+## User Workflow
+
 ```
-Company + Ticker
-      │
-      ▼
-CompanyResearchAgent ──► Profile, market, history, headlines, competitors
-      │
-      ├─► MarketDataAgent ──► Live quote
-      ├─► FinancialAgent ──► TTM + 4Y financials (income, balance, cash flow)
-      ├─► NewsAgent ──► Company headlines
-      ├─► CompetitorAgent ──► Competitor headlines
-      └─► RegulatoryAgent ──► Policy headlines
-      │
-      ▼
-All Findings ──► InvestmentAnalystAgent (LLM or keyword)
-      │
-      ▼
-Thesis Built (LLM or deterministic) ──► Triggers Generated ──► Saved to DB ──► Email Report
+1. Research Company
+       │
+       ▼
+2. Review Thesis + Triggers (Drivers & Triggers tab)
+       │
+       ▼
+3. Click "Start Tracking" on desired triggers
+       │
+       ▼
+4. Trigger Monitor tab → Select company → "Refresh trigger status"
+       │
+       ▼
+5. Background monitor (trigger_monitor.py) evaluates on schedule
+       │
+       ▼
+6. Email alerts on status changes with detailed condition explanation
 ```
 
 ---
@@ -254,7 +366,9 @@ Copy `.env.example` to `.env` and configure:
 | `SMTP_PASSWORD` | For email | App password |
 | `MONITOR_COMPANY` | For monitor | Default company to watch |
 | `MONITOR_TICKER` | For monitor | Default ticker |
-| `MONITOR_INTERVAL_SECONDS` | No | Monitor interval (default 300) |
+| `MONITOR_INDUSTRY` | For monitor | Default industry |
+| `MONITOR_COMPETITORS` | For monitor | Comma-separated competitors |
+| `MONITOR_INTERVAL_SECONDS` | No | Legacy monitor interval (default 300) |
 
 ---
 
@@ -273,9 +387,9 @@ cp .env.example .env
 # 3. Run web UI
 GRADIO_SERVER_PORT=8010 python -m app.main
 
-# 4. Or run headless monitor
-python -m app.monitor --once        # Single scan
-python -m app.monitor               # Continuous
+# 4. Or run automated trigger monitor
+python -m app.trigger_monitor --once --company "Tesla, Inc." --ticker "TSLA"
+python -m app.trigger_monitor --company "Tesla, Inc." --ticker "TSLA"  # Continuous
 ```
 
 Open browser to `http://localhost:8010` (or configured port). Try "Vodafone Idea" to load the demo profile.
@@ -304,4 +418,5 @@ Open browser to `http://localhost:8010` (or configured port). Try "Vodafone Idea
 | Company Info | Wikipedia API |
 | LLM | OpenAI API (configurable model/endpoint) |
 | Email | SMTP (Office365, Gmail, etc.) |
-| Scheduling | Built-in (monitor.py) or external (systemd/cron) |
+| Scheduling | APScheduler (trigger_monitor.py) or external (systemd/cron) |
+| Time-series | Custom `metric_history` table for consecutive-period conditions |
